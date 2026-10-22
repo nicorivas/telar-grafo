@@ -1,32 +1,55 @@
 #!/usr/bin/env python3
 """El módulo grafo de telar: envuelve nucleo/grafo.py (el lector del método de Open Brinca).
 
-Como orden (`telar grafo vecinos RUTA`, `telar grafo todo [REPO]`, `telar grafo revisar [REPO]`), las rutas
-son relativas a donde estás. Como consulta (TELAR_CONSULTA=1: los parámetros llegan en JSON por la entrada),
-`ruta` y `repo` son relativas a la raíz de telar, y la respuesta es un objeto JSON.
+Órdenes (en la terminal, las rutas son relativas a donde estás):
+
+    grafo vecinos RUTA            lo que sale de un documento y lo que le llega
+    grafo buscar TÉRMINO [--repo] documentos por título, resumen o ruta; los más conectados primero
+    grafo cerca RUTA [--saltos N] el vecindario a N pasos (2 si no se dice), por cualquier relación
+    grafo resumen RUTA            lo que resume un documento y lo que lo detalla (comprime/profundiza)
+    grafo todo [REPO]             el grafo entero, en JSON
+    grafo revisar [REPO]          aristas rotas y tipos sin declarar; no escribe
+
+Como consulta (TELAR_CONSULTA=1: los parámetros llegan en JSON por la entrada: ruta, repo, termino,
+saltos), `ruta` y `repo` son relativas a la raíz de telar, y la respuesta es un objeto JSON.
 
 Cada documento es del repositorio más hondo de `[repos]` que lo contiene (TELAR_REPOS); si no hay
-ninguno, del repositorio git donde está. Cómo es el grafo de cada repositorio lo dice su `.grafo.toml`
-(el núcleo, sus diccionarios locales, qué carpetas recorre); sin él, todo el repositorio con el núcleo de aquí.
+ninguno, del repositorio git donde está. Cómo es el grafo de cada repositorio lo dice su `.grafo.toml`.
+
+El grafo entero de un repositorio se guarda en un caché (~/.cache/telar-grafo) que vale mientras no
+cambien su commit ni sus .md sin commitear: leerlo de nuevo tarda segundos; el caché, casi nada.
 """
+import argparse
+import hashlib
 import json
 import os
 import subprocess
 import sys
+from collections import deque
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent.parent
 LECTOR = AQUI / "nucleo" / "grafo.py"
+CACHE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "telar-grafo"
+VERBOS = ("vecinos", "buscar", "cerca", "resumen", "todo", "revisar")
 
 
-def repos() -> list[dict]:
+class Falla(Exception):
+    def __init__(self, texto, codigo=1):
+        super().__init__(texto)
+        self.codigo = codigo
+
+
+# ── el repositorio y el lector ─────────────────────────────────────────────────────
+
+def repos() -> list:
     try:
         return json.loads(os.environ.get("TELAR_REPOS") or "[]")
     except ValueError:
         return []
 
 
-def repo_de(ruta: Path) -> tuple[str, Path]:
+def repo_de(ruta: Path):
     """(nombre, carpeta) del repositorio de esa ruta: el más hondo de [repos], o el de git."""
     ruta = ruta.resolve()
     mejor = None
@@ -42,84 +65,269 @@ def repo_de(ruta: Path) -> tuple[str, Path]:
     return base.name, base.resolve()
 
 
-def _lector():
-    """nucleo/grafo.py como módulo, para usar sus funciones (el título de un documento)."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("grafo_nucleo", LECTOR)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
-
-
 def lector(repo: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(LECTOR), "--repo", str(repo), *args], capture_output=True, text=True,
                           cwd=repo)
 
 
-def absolutas(datos: dict, base: Path) -> dict:
-    """Junto a cada ruta relativa al repositorio, la absoluta: la página la abre sin saber de repos."""
-    def fijar(a: dict) -> dict:
-        a = dict(a)
-        for campo in ("origen", "destino", "ruta"):
-            if a.get(campo) and a.get("estado", "ok") != "externo":
-                a[f"{campo}_abs"] = str(base / a[campo])
-        return a
+_modulo_lector = None
 
-    for clave in ("salientes", "entrantes", "aristas", "nodos"):
-        if isinstance(datos.get(clave), list):
-            datos[clave] = [fijar(a) for a in datos[clave]]
-    # lo que llega trae el título de su destino (este documento): el del origen lo pone el mismo lector
-    titulo = _lector().title
-    for a in datos.get("entrantes") or []:
-        a.setdefault("titulo_origen", titulo(str(base / a["origen"])))
-    if isinstance(datos.get("nodo"), dict):
-        datos["nodo"] = fijar(datos["nodo"])
+
+def funciones():
+    """nucleo/grafo.py como módulo, para usar sus funciones (el título y el resumen de un documento)."""
+    global _modulo_lector
+    if _modulo_lector is None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("grafo_nucleo", LECTOR)
+        _modulo_lector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_modulo_lector)
+    return _modulo_lector
+
+
+def _llave(repo: Path) -> str:
+    """Qué versión del repositorio es: su commit, y sus .md sin commitear con su fecha. "" sin git."""
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True)
+    if head.returncode != 0:
+        return ""
+    sucio = subprocess.run(["git", "-C", str(repo), "status", "--porcelain", "--", "*.md", ".grafo.toml"],
+                           capture_output=True, text=True).stdout
+    partes = [head.stdout.strip(), repr(LECTOR.stat().st_mtime)]
+    for linea in sucio.splitlines():
+        archivo = repo / linea[3:].strip().strip('"')
+        try:
+            partes.append(f"{linea}:{archivo.stat().st_mtime}")
+        except OSError:
+            partes.append(linea)
+    return hashlib.sha256("\n".join(partes).encode()).hexdigest()
+
+
+def grafo(repo: Path) -> dict:
+    """El grafo entero del repositorio, del caché si sigue valiendo."""
+    llave = _llave(repo)
+    archivo = CACHE / (hashlib.sha256(str(repo).encode()).hexdigest()[:16] + ".json")
+    if llave:
+        try:
+            guardado = json.loads(archivo.read_text(encoding="utf-8"))
+            if guardado.get("llave") == llave:
+                return guardado["grafo"]
+        except (OSError, ValueError, KeyError):
+            pass
+    r = lector(repo, "--json")
+    if r.returncode != 0:
+        raise Falla((r.stderr or r.stdout).strip() or "el lector del grafo falló", r.returncode)
+    datos = json.loads(r.stdout)
+    if llave:
+        try:
+            CACHE.mkdir(parents=True, exist_ok=True)
+            tmp = archivo.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"llave": llave, "grafo": datos}, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(archivo)
+        except OSError:
+            pass
     return datos
 
 
-def fallar(texto: str, codigo: int = 1) -> int:
-    print(texto, file=sys.stderr)
-    return codigo
+# ── las consultas ──────────────────────────────────────────────────────────────────
+
+def _nodo(repo: Path, ruta: str, nodos: dict) -> dict:
+    if ruta in nodos:
+        return dict(nodos[ruta])
+    f = funciones()
+    absoluta = str(repo / ruta)
+    return {"ruta": ruta, "titulo": f.title(absoluta), "lede": f.lede(absoluta)}
 
 
-def main(argv: list[str]) -> int:
-    if not argv or argv[0] not in ("vecinos", "todo", "revisar"):
-        return fallar("uso: grafo vecinos RUTA | todo [REPO] | revisar [REPO]", 2)
+def _con_abs(a: dict, repo: Path) -> dict:
+    a = dict(a)
+    for campo in ("origen", "destino", "ruta"):
+        if a.get(campo) and a.get("estado", "ok") != "externo":
+            a[f"{campo}_abs"] = str(repo / a[campo])
+    return a
+
+
+def vecinos(repo: Path, rel: str) -> dict:
+    g = grafo(repo)
+    nodos = {n["ruta"]: n for n in g.get("nodos", [])}
+    salen = [a for a in g["aristas"] if a["origen"] == rel]
+    llegan = [{**a, "titulo_origen": _nodo(repo, a["origen"], nodos).get("titulo", "")}
+              for a in g["aristas"] if a["destino"] == rel and a["estado"] == "ok"]
+    return {"nodo": _con_abs(_nodo(repo, rel, nodos), repo), "salientes": [_con_abs(a, repo) for a in salen],
+            "entrantes": [_con_abs(a, repo) for a in llegan]}
+
+
+def buscar(repo: Path, termino: str, tope: int = 20) -> dict:
+    """Los documentos del grafo cuyo título, resumen o ruta nombran el término (todas sus palabras), con
+    cuántas conexiones tienen: uno muy conectado suele ser la puerta de entrada a un tema."""
+    g = grafo(repo)
+    palabras = [p for p in termino.casefold().split() if p]
+    if not palabras:
+        raise Falla("¿qué buscas? grafo buscar TÉRMINO", 2)
+    grado = {}
+    for a in g["aristas"]:
+        if a["estado"] == "ok":
+            grado[a["origen"]] = grado.get(a["origen"], 0) + 1
+            grado[a["destino"]] = grado.get(a["destino"], 0) + 1
+    hallados = []
+    for n in g.get("nodos", []):
+        titulo, lede, ruta = (n.get("titulo") or "").casefold(), (n.get("lede") or "").casefold(), n["ruta"].casefold()
+        if not all(p in titulo or p in lede or p in ruta for p in palabras):
+            continue
+        puntos = sum(3 * (p in titulo) + 2 * (p in ruta) + (p in lede) for p in palabras)
+        hallados.append((puntos, {**_con_abs(n, repo), "conexiones": grado.get(n["ruta"], 0)}))
+    hallados.sort(key=lambda x: (-x[0], -x[1]["conexiones"], x[1]["ruta"]))
+    return {"termino": termino, "total": len(hallados), "documentos": [h for _, h in hallados[:tope]]}
+
+
+def cerca(repo: Path, rel: str, saltos: int = 2, tope: int = 40) -> dict:
+    """El vecindario a `saltos` pasos, siguiendo cualquier relación en los dos sentidos. Cada documento
+    trae a qué distancia está y el camino por el que se llega (los tipos, con su sentido)."""
+    g = grafo(repo)
+    nodos = {n["ruta"]: n for n in g.get("nodos", [])}
+    ady = {}
+    for a in g["aristas"]:
+        if a["estado"] != "ok":
+            continue
+        ady.setdefault(a["origen"], []).append((a["destino"], f"→{a['tipo']}"))
+        ady.setdefault(a["destino"], []).append((a["origen"], f"←{a['tipo']}"))
+    vistos = {rel: (0, [])}
+    cola = deque([rel])
+    while cola:
+        actual = cola.popleft()
+        d, camino = vistos[actual]
+        if d >= saltos:
+            continue
+        for otro, paso in ady.get(actual, []):
+            if otro not in vistos:
+                vistos[otro] = (d + 1, [*camino, paso])
+                cola.append(otro)
+    cercanos = [{**_con_abs(_nodo(repo, r, nodos), repo), "distancia": d, "camino": " ".join(c)}
+                for r, (d, c) in vistos.items() if r != rel]
+    cercanos.sort(key=lambda x: (x["distancia"], x["ruta"]))
+    return {"nodo": _con_abs(_nodo(repo, rel, nodos), repo), "saltos": saltos, "total": len(cercanos),
+            "documentos": cercanos[:tope]}
+
+
+def resumen(repo: Path, rel: str) -> dict:
+    """Subir o bajar de nivel de detalle: lo que resume este documento (un `comprime` que llega, o un
+    `profundiza` que sale) y lo que lo detalla (un `comprime` que sale, o un `profundiza` que llega)."""
+    v = vecinos(repo, rel)
+    arriba = [a for a in v["entrantes"] if a["tipo"] == "comprime"] + [a for a in v["salientes"] if a["tipo"] == "profundiza"]
+    abajo = [a for a in v["salientes"] if a["tipo"] == "comprime"] + [a for a in v["entrantes"] if a["tipo"] == "profundiza"]
+
+    def otro(a):
+        lado = "origen" if a["destino"] == rel else "destino"
+        titulo = a.get("titulo_origen") if lado == "origen" else a.get("titulo_destino")
+        return {"ruta": a[lado], "ruta_abs": a.get(f"{lado}_abs", ""), "titulo": titulo or "",
+                "locus": a.get("locus", ""), "porque": a.get("porque", "")}
+
+    return {"nodo": v["nodo"], "lo_resume": [otro(a) for a in arriba], "lo_detalla": [otro(a) for a in abajo]}
+
+
+# ── la terminal ────────────────────────────────────────────────────────────────────
+
+def imprimir(verbo: str, d: dict) -> None:
+    def arista(flecha, a, lado):
+        locus = f" · {a['locus']}" if a.get("locus") else ""
+        print(f"  {flecha} `{a['tipo']}` {a[lado]}{locus} · {a['porque']}")
+
+    if verbo == "vecinos":
+        n = d["nodo"]
+        print(f"{n.get('titulo') or n['ruta']} · {n['ruta']}")
+        for a in d["salientes"]:
+            arista("→", a, "destino")
+        for a in d["entrantes"]:
+            arista("←", a, "origen")
+        if not d["salientes"] and not d["entrantes"]:
+            print("  sin conexiones")
+    elif verbo == "buscar":
+        mas = f" (los primeros {len(d['documentos'])})" if d["total"] > len(d["documentos"]) else ""
+        print(f"{d['total']} documento(s) con «{d['termino']}»{mas}")
+        for x in d["documentos"]:
+            print(f"  {x['ruta']} · {x.get('titulo') or ''} · {x['conexiones']} conexiones")
+    elif verbo == "cerca":
+        print(f"a {d['saltos']} pasos de {d['nodo']['ruta']}: {d['total']} documento(s)")
+        for x in d["documentos"]:
+            print(f"  {x['distancia']}  {x['ruta']} · {x.get('titulo') or ''}  [{x['camino']}]")
+    elif verbo == "resumen":
+        n = d["nodo"]
+        print(f"{n.get('titulo') or n['ruta']} · {n['ruta']}")
+        for clave, flecha in (("lo_resume", "↑ lo resume"), ("lo_detalla", "↓ lo detalla")):
+            for x in d[clave]:
+                print(f"  {flecha}: {x['ruta']} · {x['titulo']}" + (f" · {x['locus']}" if x["locus"] else ""))
+        if not d["lo_resume"] and not d["lo_detalla"]:
+            print("  nada lo resume ni lo detalla (no hay `comprime` ni `profundiza` con él)")
+    else:
+        print(json.dumps(d, ensure_ascii=False, indent=1))
+
+
+def main(argv: list) -> int:
+    if not argv or argv[0] not in VERBOS:
+        print(__doc__.split("\n\n")[1], file=sys.stderr)
+        return 2
     verbo = argv[0]
     consulta = bool(os.environ.get("TELAR_CONSULTA"))
     if consulta:
-        params = json.load(sys.stdin)
+        p = json.load(sys.stdin)
         base = Path(os.environ.get("TELAR_RAIZ") or ".").expanduser()
-        valor = str(params.get("ruta") or params.get("repo") or "")
+        valor = str(p.get("ruta") or p.get("repo") or "")
+        termino = str(p.get("termino") or "")
+        try:
+            saltos = int(p.get("saltos") or 2)
+        except ValueError:
+            saltos = 2
     else:
+        ap = argparse.ArgumentParser(prog=f"telar grafo {verbo}")
+        if verbo == "buscar":
+            ap.add_argument("termino", nargs="+")
+            ap.add_argument("--repo", default="")
+        elif verbo in ("todo", "revisar"):
+            ap.add_argument("repo", nargs="?", default="")
+        else:
+            ap.add_argument("ruta")
+        if verbo == "cerca":
+            ap.add_argument("--saltos", type=int, default=2)
+        o = ap.parse_args(argv[1:])
         base = Path.cwd()
-        valor = argv[1] if len(argv) > 1 else ""
-    if verbo == "vecinos" and not valor:
-        return fallar("¿de qué documento? grafo vecinos RUTA", 2)
+        valor = getattr(o, "ruta", "") or getattr(o, "repo", "")
+        termino = " ".join(getattr(o, "termino", None) or [])
+        saltos = getattr(o, "saltos", 2)
+    if verbo in ("vecinos", "cerca", "resumen") and not valor:
+        print(f"¿de qué documento? grafo {verbo} RUTA", file=sys.stderr)
+        return 2
     ruta = Path(valor).expanduser() if valor else base
     ruta = ruta if ruta.is_absolute() else base / ruta
     if not ruta.exists():
-        return fallar(f"no existe: {valor}", 2)
+        print(f"no existe: {valor}", file=sys.stderr)
+        return 2
     nombre, repo = repo_de(ruta)
-
-    if verbo == "revisar":
-        r = lector(repo, "--check")
-        sys.stdout.write(r.stdout)
-        sys.stderr.write(r.stderr)
-        return r.returncode
-    args = ["vecinos", str(ruta.resolve())] if verbo == "vecinos" else []
-    if consulta or verbo == "todo":
-        args.append("--json")
-    r = lector(repo, *args)
-    if r.returncode != 0:
-        return fallar((r.stderr or r.stdout).strip() or "el lector del grafo falló", r.returncode)
-    if not consulta and verbo == "vecinos":
-        sys.stdout.write(r.stdout)
-        return 0
-    datos = absolutas(json.loads(r.stdout), repo)
+    rel = os.path.relpath(ruta.resolve(), repo)
+    try:
+        if verbo == "revisar":
+            r = lector(repo, "--check")
+            sys.stdout.write(r.stdout)
+            sys.stderr.write(r.stderr)
+            return r.returncode
+        if verbo == "todo":
+            g = grafo(repo)
+            datos = {**g, "aristas": [_con_abs(a, repo) for a in g["aristas"]],
+                     "nodos": [_con_abs(n, repo) for n in g.get("nodos", [])]}
+        elif verbo == "vecinos":
+            datos = vecinos(repo, rel)
+        elif verbo == "buscar":
+            datos = buscar(repo, termino)
+        elif verbo == "cerca":
+            datos = cerca(repo, rel, max(1, min(saltos, 4)))
+        else:
+            datos = resumen(repo, rel)
+    except Falla as e:
+        print(str(e), file=sys.stderr)
+        return e.codigo
     datos["repo"] = {"nombre": nombre, "ruta": str(repo)}
-    print(json.dumps(datos, ensure_ascii=False))
+    if consulta:
+        print(json.dumps(datos, ensure_ascii=False))
+    else:
+        imprimir(verbo, datos)
     return 0
 
 

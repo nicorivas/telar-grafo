@@ -6,6 +6,21 @@ descripcion = "Lo que sale de un documento y lo que le llega, con su tipo y su p
 comando = ["bin/grafo", "vecinos"]
 consulta = true
 
+[ordenes.buscar]
+descripcion = "Documentos por título, resumen o ruta; los más conectados primero."
+comando = ["bin/grafo", "buscar"]
+consulta = true
+
+[ordenes.cerca]
+descripcion = "El vecindario de un documento a N pasos (2 si no se dice), por cualquier relación."
+comando = ["bin/grafo", "cerca"]
+consulta = true
+
+[ordenes.resumen]
+descripcion = "Lo que resume un documento y lo que lo detalla: subir o bajar de nivel de detalle."
+comando = ["bin/grafo", "resumen"]
+consulta = true
+
 [ordenes.todo]
 descripcion = "El grafo entero de un repositorio: nodos, aristas y vocabulario."
 comando = ["bin/grafo", "todo"]
@@ -14,3 +29,10 @@ consulta = true
 [ordenes.revisar]
 descripcion = "Valida el grafo de un repositorio sin escribir nada (aristas rotas, tipos sin declarar)."
 comando = ["bin/grafo", "revisar"]
+
+[ordenes.uso]
+descripcion = "¿Los agentes usan el grafo para encontrar, o buscan por texto? Lo mide en sus conversaciones."
+comando = ["bin/uso"]
+
+[contexto]
+texto = """Los documentos de este repositorio están conectados en un grafo (cada uno dice con qué se relaciona y por qué, en `## Conexiones`). Para encontrar y entender, antes de buscar por texto: `telar grafo buscar <tema>` (la puerta de entrada), `telar grafo vecinos <ruta>` (lo que sale y lo que llega), `telar grafo cerca <ruta>` (a dos pasos), `telar grafo resumen <ruta>` (el resumen o el detalle)."""

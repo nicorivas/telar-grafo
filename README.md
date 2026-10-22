@@ -35,12 +35,22 @@ telar modulos quitar grafo
 ## Use
 
 ```sh
+telar grafo buscar memoria              # documents by title, summary or path; the most connected first
 telar grafo vecinos docs/una-idea.md    # what goes out of that document and what comes into it
+telar grafo cerca docs/una-idea.md      # its neighbourhood two steps away (--saltos N), by any relation
+telar grafo resumen docs/una-idea.md    # what summarizes it and what details it (comprime / profundiza)
 telar grafo todo                        # the whole graph of the repository you are in, as JSON
 telar grafo revisar                     # broken links and undeclared types; writes nothing
 ```
 
-`vecinos` and `todo` are also queries, which is how telar's page uses them:
+The whole graph of a repository is cached in `~/.cache/telar-grafo` while its commit and its uncommitted
+`.md` files stay the same, so after the first read every command answers at once.
+
+The module also tells the agent of every telar thread that the graph is there and which of these
+commands to reach for before searching by text (`[contexto]` in `modulo.toml`): a graph that agents don't
+know about is only written, never read.
+
+All but `revisar` are also queries, which is how telar's page uses them:
 
 ```
 GET /api/modulos/grafo/vecinos?ruta=docs/una-idea.md[&maquina=server]

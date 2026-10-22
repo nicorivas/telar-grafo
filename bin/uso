@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""¿Usan los agentes el grafo para encontrar, o buscan por texto? Lo mide en las conversaciones de Claude Code
+(~/.claude/projects/*/*.jsonl, una por sesión), desde una fecha:
+
+- búsquedas por texto o por nombre: Grep, Glob, y grep/rg/find en la terminal;
+- consultas al grafo: `telar grafo …` y el lector (`grafo.py vecinos|--json`);
+- conexiones escritas: una línea de arista en lo que un agente escribió;
+- conexiones seguidas: después de leer un documento con `## Conexiones` o `## Referido por` a la vista, abrir
+  en las 25 llamadas siguientes uno de los documentos que nombran (sin contar README, CLAUDE, HANDOFF ni
+  bitácoras, que se leen igual). Es un tope: pudo llegar ahí buscando por texto.
+
+    telar grafo uso [--desde AAAA-MM-DD] [--json]
+"""
+import argparse
+import json
+import os
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+ARISTA = re.compile(r"^- `[^`]+` \[", re.M)
+LINK = re.compile(r"\]\(([^)\s]+\.md)(?:#[^)]*)?\)")
+BUSCAR = re.compile(r"(^|[|;&(\s])(grep|rg|egrep|find|fd|ack)\s")
+LEER = re.compile(r"\b(cat|sed -n|head|tail|less)\b[^|;&]*?([^\s'\"|;&]+\.md)")
+ESCRIBE = re.compile(r"cat >|<<-?'?\w+'?|write_text|open\([^)]*['\"]w")
+GRAFO = re.compile(r"telar grafo |grafo\.py\S* (vecinos|--json)")
+COMUNES = {"README.md", "CLAUDE.md", "HANDOFF.md", "BITACORA.md", "bitacora.md"}
+SECCION = re.compile(r"^.{0,12}## (Conexiones|Referido por)\s*$(.*?)(?=^.{0,12}## |\Z)", re.M | re.S)
+
+
+def destinos(texto: str) -> set:
+    salida = set()
+    for m in SECCION.finditer(texto):
+        salida.update(os.path.basename(l) for l in LINK.findall(m.group(2)))
+    return salida - COMUNES
+
+
+def texto_de(c: dict) -> str:
+    v = c.get("content")
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list):
+        return "\n".join(x.get("text", "") for x in v if isinstance(x, dict))
+    return ""
+
+
+def medir(raiz: Path, desde: str) -> Counter:
+    n = Counter()
+    for archivo in raiz.glob("*/*.jsonl"):
+        llamadas, pendientes, orden, siguio, conto = {}, [], 0, False, False
+        for linea in archivo.open(encoding="utf-8", errors="replace"):
+            try:
+                f = json.loads(linea)
+            except ValueError:
+                continue
+            if desde and (f.get("timestamp") or "")[:10] < desde:
+                continue
+            contenido = (f.get("message") or {}).get("content")
+            if not isinstance(contenido, list):
+                continue
+            for c in contenido:
+                if not isinstance(c, dict):
+                    continue
+                if c.get("type") == "tool_use":
+                    conto = True
+                    orden += 1
+                    nombre, e = c.get("name", ""), c.get("input") or {}
+                    ruta = None
+                    if nombre in ("Edit", "Write", "MultiEdit"):
+                        if ARISTA.search(e.get("new_string") or e.get("content") or ""):
+                            n["conexiones escritas"] += 1
+                    elif nombre in ("Grep", "Glob"):
+                        n["búsquedas por texto o nombre"] += 1
+                    elif nombre == "Read" and str(e.get("file_path", "")).endswith(".md"):
+                        ruta = e["file_path"]
+                    elif nombre == "Bash":
+                        cmd = e.get("command", "")
+                        if GRAFO.search(cmd):
+                            n["consultas al grafo"] += 1
+                        elif BUSCAR.search(cmd):
+                            n["búsquedas por texto o nombre"] += 1
+                        if ESCRIBE.search(cmd):
+                            n["conexiones escritas"] += len(ARISTA.findall(cmd))
+                        elif (m := LEER.search(cmd)):
+                            ruta = m.group(2)
+                    llamadas[c.get("id")] = (orden, ruta)
+                    if ruta:
+                        n["lecturas de documentos"] += 1
+                        base = os.path.basename(ruta)
+                        for o, ds in pendientes:
+                            if base in ds and orden - o <= 25:
+                                n["conexiones seguidas"] += 1
+                                siguio = True
+                                ds.discard(base)
+                elif c.get("type") == "tool_result":
+                    o, ruta = llamadas.get(c.get("tool_use_id"), (0, None))
+                    if ruta and (ds := destinos(texto_de(c))):
+                        n["lecturas con conexiones a la vista"] += 1
+                        pendientes.append((o, ds))
+        if conto:
+            n["sesiones"] += 1
+            n["sesiones que siguieron alguna conexión"] += siguio
+    return n
+
+
+def main(argv) -> int:
+    ap = argparse.ArgumentParser(prog="telar grafo uso", description=__doc__.split("\n\n")[0])
+    ap.add_argument("--desde", default="", help="AAAA-MM-DD: solo lo que pasó desde ese día")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--conversaciones", default=str(Path.home() / ".claude" / "projects"))
+    o = ap.parse_args(argv)
+    n = medir(Path(o.conversaciones).expanduser(), o.desde)
+    if o.json:
+        print(json.dumps({"desde": o.desde, **n}, ensure_ascii=False))
+        return 0
+    print(f"desde {o.desde or 'siempre'}, en {n['sesiones']} sesiones:")
+    for clave in ("búsquedas por texto o nombre", "consultas al grafo", "conexiones escritas",
+                  "lecturas con conexiones a la vista", "conexiones seguidas", "sesiones que siguieron alguna conexión"):
+        print(f"  {n[clave]:>7}  {clave}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
