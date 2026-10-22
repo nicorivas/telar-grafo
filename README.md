@@ -17,7 +17,8 @@ other machines over telar's bus.
 
 ## Install
 
-You need telar 0.3 or later (modules with commands and queries) and Python 3.11+. Nothing else.
+You need a telar with modules that bring commands and queries (its `main` after 0.2.0, or the next release)
+and Python 3.11+. Nothing else.
 
 ```sh
 telar modulos instalar https://github.com/nicorivas/telar-grafo
