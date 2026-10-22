@@ -21,6 +21,8 @@ Configuración opcional en `.grafo.toml`, en la raíz del repositorio:
   locales = ["grafo.local.md"]           # diccionarios con las palabras propias del repo
   raices  = ["eventos", "webinars"]      # por defecto, todo el repositorio
   excluir = ["borradores", "eventos/x"]  # nombres de carpeta o rutas que no se recorren
+  no_escribir = ["informe/generado.md"]  # archivos que escribe otro programa: no reciben espejo
+  detectar_generados = true              # también los que lo declaran en sus primeras líneas
 
 Uso:
   python3 metodo/grafo/grafo.py                       # aplica los cambios
@@ -46,11 +48,16 @@ EDGE = re.compile(r"^- `([^`]+)` \[([^\]]+)\]\(((?:[^()]|\([^()]*\))+)\)")
 # Una entrada del diccionario es un encabezado que empieza por un codespan: `#### `tipo``.
 # Puede declarar dos tipos a la vez: `profundiza` ⇄ `comprime`.
 ENTRADA = re.compile(r"^#{2,4}\s+(`.+)$", re.M)
-GEN_MARK = ("<!-- AUTO-GENERADO por grafo.py · no editar a mano · "
+GEN_MARK = ("<!-- AUTO-GENERADO por {script} · no editar a mano · "
             "el «por qué» vive en el origen (## Conexiones) -->")
 # Reconoce también la marca de versiones anteriores del script (otra ruta, otro nombre),
 # para que un repositorio que migra no se quede con espejos huérfanos.
 GEN_RE = re.compile(r"<!-- AUTO-GENERADO por \S*grafo[\w.-]*\.py ")
+# Un archivo que produce otro programa se reescribe entero desde su fuente: un bloque que le
+# escribamos se pierde en la próxima corrida de SU generador, y quedaríamos reportando deriva
+# para siempre. Con `detectar_generados = true`, un archivo que lo declara en sus primeras
+# líneas no recibe espejo; `no_escribir` los nombra uno por uno.
+GENERADO = re.compile(r"no editar a mano|generado desde|auto-?generado", re.I)
 
 
 def raiz_repo():
@@ -74,6 +81,10 @@ def leer_config(repo, args):
     raices = args.raices or cfg.get("raices", [])
     excluir = set(cfg.get("excluir", [])) | set(args.excluir or [])
     return {
+        "detectar_generados": bool(cfg.get("detectar_generados", False)),
+        # La copia del núcleo tampoco recibe espejo: tiene que seguir idéntica a la original.
+        "no_escribir": {os.path.normpath(os.path.join(repo, p)) for p in cfg.get("no_escribir", [])}
+                       | {os.path.normpath(nucleo)},
         "repo": repo,
         "nucleo": nucleo,
         "locales": [os.path.join(repo, p) for p in locales],
@@ -174,6 +185,20 @@ def title(path):
         if ln.startswith("# "):
             return re.sub(r"[*`\\]", "", ln[2:]).strip()
     return os.path.splitext(os.path.basename(path))[0]
+
+
+def es_generado(path, content, cfg):
+    """¿Lo escribe otro programa? Por lista (`no_escribir`) o porque lo declara en su cabecera."""
+    if os.path.normpath(path) in cfg["no_escribir"]:
+        return True
+    if not cfg["detectar_generados"]:
+        return False
+    for line in content.splitlines()[:20]:
+        if GEN_RE.search(line):              # nuestra propia marca no cuenta
+            continue
+        if GENERADO.search(line):
+            return True
+    return False
 
 
 def lede(path):
@@ -376,19 +401,24 @@ def main():
     if args.json or args.accion:
         sys.exit(salida_consulta(args, cfg, repo, aristas))
 
-    changed = []
+    script = os.path.relpath(os.path.abspath(__file__), repo)
+    marca = GEN_MARK.format(script=script if not script.startswith("..") else "grafo.py")
+    changed, generados = [], []
     for tgt, sources in rev.items():
         # El espejo se escribe SOLO en markdown: pegarle un bloque a un .html o a un .json lo rompe.
         if not in_scope(tgt, cfg) or not tgt.endswith(".md"):
+            continue
+        with open(tgt, encoding="utf-8") as f:
+            content = f.read()
+        if es_generado(tgt, content, cfg):
+            generados.append(tgt)
             continue
         rows = []
         for src in sorted(sources):
             tipos = ", ".join(f"`{t}`" for t in sorted(sources[src]))
             rel = os.path.relpath(src, os.path.dirname(tgt))
             rows.append(f"- {tipos} ← [{title(src)}]({rel})")
-        block = f"## Referido por\n\n{GEN_MARK}\n\n" + "\n".join(rows) + "\n"
-        with open(tgt, encoding="utf-8") as f:
-            content = f.read()
+        block = f"## Referido por\n\n{marca}\n\n" + "\n".join(rows) + "\n"
         new = upsert(content, block)
         if new != content:
             changed.append(tgt)
@@ -402,7 +432,7 @@ def main():
             continue
         with open(f, encoding="utf-8", errors="replace") as fh:
             content = fh.read()
-        if GEN_RE.search(content):
+        if GEN_RE.search(content) and not es_generado(f, content, cfg):
             new = strip_referidos(content)
             if new != content:
                 changed.append(f)
@@ -415,6 +445,10 @@ def main():
     print(f"aristas: {n_edges} · nodos con backlinks: {len(rev)} · archivos {verb}: {len(changed)}")
     for c in changed:
         print(f"  ~ {os.path.relpath(c, repo)}")
+    if generados:
+        print(f"sin espejo (la copia del núcleo o archivos que escribe otro programa): {len(generados)}")
+        for g in generados:
+            print(f"  · {os.path.relpath(g, repo)}")
     if dangling:
         print(f"LINKS ROTOS ({len(dangling)}):")
         for src, tipo, rel in dangling:

@@ -26,7 +26,7 @@ Las aristas de un documento van en su sección `## Conexiones`, una por línea:
 - `tipo` [Título del destino](ruta/relativa.md) · §X · por qué se relacionan
 ```
 
-- **`tipo`**, en codespan, es la relación y el ancla de `grep`. Una arista lleva un solo tipo.
+- **`tipo`**, en codespan, es la relación y el ancla de `grep`. Una arista lleva un solo tipo. Los tipos se escriben en minúsculas, sin tildes y con guiones (`deriva-de`), para que sean fáciles de escribir y de buscar.
 - **`[Título](ruta)`** es el destino: un enlace que se puede abrir y una ruta que se puede buscar. La ruta es relativa y nunca sale del repositorio, porque una ruta externa solo funciona en la máquina de quien la escribió.
 - **`· §X`** es el lugar exacto dentro del destino. Es opcional.
 - **`· por qué`** es obligatorio. El matiz va aquí y no en un tipo nuevo. Sin porqué, una arista es solo un enlace.
@@ -78,7 +78,7 @@ Meta: inverso-de `contiene`.
 
 #### `deriva-de`
 Glosa: el origen nació del destino y no existiría sin él.
-Distingue: vs `usa` (usa toma algo prestado; deriva-de debe su existencia al destino) · vs `continúa` (deriva-de es procedencia del contenido; continúa es sucesión en el tiempo).
+Distingue: vs `usa` (usa toma algo prestado; deriva-de debe su existencia al destino) · vs `continua` (deriva-de es procedencia del contenido; `continua` es sucesión en el tiempo).
 Meta: inverso-de `origina`.
 
 #### `origina`
@@ -113,10 +113,10 @@ Cuándo importa: una norma sabe mejor que nadie a quién limita, así que la ari
 Glosa: el origen es el instrumento con que se mide el destino. Produce un número comparable en el tiempo.
 Distingue: vs `informa` (informa ilumina; mide produce un número) · vs `verifica` (verifica deja un veredicto una vez).
 
-#### `continúa`
+#### `continua`
 Glosa: el origen es la siguiente entrega o el siguiente paso de algo que el destino abrió: una serie de webinars, un estudio anual, una cadena de trabajo.
-Distingue: vs `deriva-de` (deriva-de es procedencia del contenido; continúa es sucesión en el tiempo) · vs `sustituye-a` (la entrega anterior sigue siendo el registro válido de su fecha).
-Cuándo importa: se escribe hacia atrás, de la entrega nueva a la anterior. Así la cadena se arma sola. Ejemplo: el informe de adopción 2026 de Wharton y GBK continúa el de 2025.
+Distingue: vs `deriva-de` (deriva-de es procedencia del contenido; `continua` es sucesión en el tiempo) · vs `sustituye-a` (la entrega anterior sigue siendo el registro válido de su fecha).
+Cuándo importa: se escribe hacia atrás, de la entrega nueva a la anterior. Así la cadena se arma sola. Ejemplo: el informe de adopción 2026 de Wharton y GBK `continua` el de 2025.
 
 ### Resolución: cuánto detalle
 
@@ -140,7 +140,7 @@ Meta: cerca-de `confirma`.
 
 #### `confirma`
 Glosa: el origen corrobora el destino desde otra base: un testigo independiente que llega a lo mismo.
-Distingue: vs `sostiene` (sostiene es la base misma; confirma llega desde afuera) · vs `aplica` (aplica usa el destino en un caso; no lo respalda) · vs `análogo-a` (la analogía nombra una misma forma; no aporta evidencia).
+Distingue: vs `sostiene` (sostiene es la base misma; confirma llega desde afuera) · vs `aplica` (aplica usa el destino en un caso; no lo respalda) · vs `analogo-a` (la analogía nombra una misma forma; no aporta evidencia).
 Meta: opuesto-de `refuta`.
 
 #### `sostiene`
@@ -158,7 +158,7 @@ Glosa: origen y destino cubren mitades distintas de lo mismo; ninguno contiene a
 Distingue: es simétrica y afirma un reparto del trabajo.
 Meta: más-general `informa`.
 
-#### `análogo-a`
+#### `analogo-a`
 Glosa: origen y destino aplican el mismo principio en dominios distintos y llegaron a él por separado. Es una coincidencia de forma, no un préstamo: ninguno funda ni prueba al otro.
 Distingue: vs `confirma` (confirma aporta evidencia; la analogía solo nombra la misma forma) · vs `deriva-de` y `aplica` (ahí uno tomó del otro; en la analogía nadie tomó nada).
 Meta: más-general `informa`. Es simétrica.
@@ -187,7 +187,7 @@ Cuándo importa: avisa que una cifra del destino no se puede citar. El porqué d
 
 #### `sustituye-a`
 Glosa: el origen reemplaza al destino o a una parte de él, que queda obsoleta sin haber sido falsa.
-Distingue: vs `corrige` (corrige dice que el destino estaba equivocado) · vs `continúa` (en una serie, la entrega anterior sigue valiendo para su fecha) · vs `reencuadra` (reencuadra deja los dos vigentes).
+Distingue: vs `corrige` (corrige dice que el destino estaba equivocado) · vs `continua` (en una serie, la entrega anterior sigue valiendo para su fecha) · vs `reencuadra` (reencuadra deja los dos vigentes).
 Meta: más-general `reencuadra`.
 Cuándo importa: impide que un agente cite como vigente algo que dejó de regir.
 
@@ -244,4 +244,4 @@ En otro repositorio, la ruta del núcleo es la de su copia. El ancla `^- \`tipo\
 
 ## Versiones
 
-- **1.0 · 21 de octubre de 2026.** Primera versión pública. Reúne el vocabulario de los diccionarios que Brinca usaba en sus repositorios internos y agrega `análogo-a`.
+- **1.0 · 21 de octubre de 2026.** Primera versión pública. Reúne el vocabulario de los diccionarios que Brinca usaba en sus repositorios internos y agrega `analogo-a`.
