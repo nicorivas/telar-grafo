@@ -1,0 +1,16 @@
+nombre = "grafo"
+descripcion = "El grafo de conocimiento de tus repositorios: las conexiones de cada documento."
+
+[ordenes.vecinos]
+descripcion = "Lo que sale de un documento y lo que le llega, con su tipo y su porqué."
+comando = ["bin/grafo", "vecinos"]
+consulta = true
+
+[ordenes.todo]
+descripcion = "El grafo entero de un repositorio: nodos, aristas y vocabulario."
+comando = ["bin/grafo", "todo"]
+consulta = true
+
+[ordenes.revisar]
+descripcion = "Valida el grafo de un repositorio sin escribir nada (aristas rotas, tipos sin declarar)."
+comando = ["bin/grafo", "revisar"]
