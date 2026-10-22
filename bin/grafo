@@ -42,6 +42,16 @@ def repo_de(ruta: Path) -> tuple[str, Path]:
     return base.name, base.resolve()
 
 
+def _lector():
+    """nucleo/grafo.py como módulo, para usar sus funciones (el título de un documento)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("grafo_nucleo", LECTOR)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
 def lector(repo: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(LECTOR), "--repo", str(repo), *args], capture_output=True, text=True,
                           cwd=repo)
@@ -59,6 +69,10 @@ def absolutas(datos: dict, base: Path) -> dict:
     for clave in ("salientes", "entrantes", "aristas", "nodos"):
         if isinstance(datos.get(clave), list):
             datos[clave] = [fijar(a) for a in datos[clave]]
+    # lo que llega trae el título de su destino (este documento): el del origen lo pone el mismo lector
+    titulo = _lector().title
+    for a in datos.get("entrantes") or []:
+        a.setdefault("titulo_origen", titulo(str(base / a["origen"])))
     if isinstance(datos.get("nodo"), dict):
         datos["nodo"] = fijar(datos["nodo"])
     return datos
