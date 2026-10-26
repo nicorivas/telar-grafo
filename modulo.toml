@@ -36,3 +36,10 @@ comando = ["bin/uso"]
 
 [contexto]
 texto = """Los documentos de este repositorio están conectados en un grafo (cada uno dice con qué se relaciona y por qué, en `## Conexiones`). Para encontrar y entender, antes de buscar por texto: `telar grafo buscar <tema>` (la puerta de entrada), `telar grafo vecinos <ruta>` (lo que sale y lo que llega), `telar grafo cerca <ruta>` (a dos pasos), `telar grafo resumen <ruta>` (el resumen o el detalle)."""
+
+# lo que pide fuera de su carpeta: se muestra antes de instalarlo (telar todavía no lo hace cumplir)
+[permisos]
+leer = ["los repositorios de [repos] (sus .md)", "~/.claude/projects (solo `uso`: las conversaciones de Claude Code)"]
+escribir = ["~/.cache/telar-grafo"]
+red = false
+ordenes = []
