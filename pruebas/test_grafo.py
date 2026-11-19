@@ -187,9 +187,11 @@ class LosNodos(unittest.TestCase):
         self.assertIn("atajo/idea.md", {o["id"] for o in d["objetos"]})
         entorno = {"TELAR_RAIZ": str(self.raiz), "XDG_CACHE_HOME": str(self.cache), "TELAR_CONSULTA": "1",
                    "TELAR_REPOS": json.dumps([self.repos[0]])}
-        r = correr("vecinos", entrada=json.dumps({"id": "atajo/idea.md"}), entorno=entorno)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(len(json.loads(r.stdout)["salientes"]), 2, "sus conexiones, aunque la carpeta real sea otra")
+        for ruta in ("atajo/idea.md", "notas/idea.md", str(self.raiz / "notas/idea.md")):
+            r = correr("vecinos", entrada=json.dumps({"ruta": ruta}), entorno=entorno)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(len(json.loads(r.stdout)["salientes"]), 2,
+                             f"{ruta}: sus conexiones, por el enlace o por la carpeta real (la que da el visor)")
 
     def test_en_la_terminal(self):
         r = correr("nodos", cwd=self.raiz, entorno={"TELAR_RAIZ": str(self.raiz), "XDG_CACHE_HOME": str(self.cache),

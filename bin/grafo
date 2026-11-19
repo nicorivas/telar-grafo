@@ -325,6 +325,26 @@ def nodos() -> dict:
     return {"objetos": objetos, "fallas": fallas}
 
 
+def como_en_el_grafo(repo: Path, ruta: Path, rel: str) -> str:
+    """La ruta con que el grafo nombra un documento. Por un enlace simbólico (una raíz del grafo que es un enlace a otra
+    carpeta) el grafo lo nombra por el camino del enlace, y quien pregunta puede venir por cualquiera de los dos (el
+    visor de telar, por la carpeta real): si `rel` no es un nodo, el que lleva al mismo archivo."""
+    nodos = {n["ruta"] for n in grafo(repo).get("nodos", [])}
+    if rel in nodos:
+        return rel
+    lexica = os.path.relpath(os.path.abspath(ruta), repo)
+    if lexica in nodos:
+        return lexica
+    real, carpetas = os.path.realpath(ruta), {}
+    for n in sorted(nodos):
+        padre, nombre = os.path.split(n)
+        if padre not in carpetas:
+            carpetas[padre] = os.path.realpath(repo / padre)
+        if os.path.join(carpetas[padre], nombre) == real:
+            return n
+    return rel
+
+
 # ── la terminal ────────────────────────────────────────────────────────────────────
 
 def imprimir(verbo: str, d: dict) -> None:
@@ -420,15 +440,10 @@ def main(argv: list) -> int:
     nombre, repo = repo_de(ruta)
     rel = os.path.relpath(ruta.resolve(), repo)
     if verbo in ("vecinos", "cerca", "resumen"):
-        # por un enlace simbólico (una raíz del grafo que es un enlace a otra carpeta), el grafo la nombra por el
-        # camino del enlace, no por la carpeta real: si ese es el que tiene, ese
-        lexica = os.path.relpath(os.path.abspath(ruta), repo)
-        if lexica != rel and not lexica.startswith(".."):
-            try:
-                if any(n["ruta"] == lexica for n in grafo(repo).get("nodos", [])):
-                    rel = lexica
-            except Falla:
-                pass
+        try:
+            rel = como_en_el_grafo(repo, ruta, rel)
+        except Falla:
+            pass
     try:
         if verbo == "revisar":
             r = lector(repo, "--check")
