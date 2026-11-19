@@ -104,6 +104,9 @@ Without one, the whole repository is read with the core vocabulary.
 
 - `modulo.toml` is what telar reads: the module's commands, and which of them are queries.
 - `bin/grafo` is the module: it finds the repository of each document and calls the reader.
+- `.telar/despliegue.yaml` says how `telar desplegar` takes it to every machine where it is installed: restart
+  `telar serve` when `modulo.toml` changes (so it sees new queries and object types), then check that the queries
+  answer.
 - `nucleo/` is the reader and the core of the graph method of Open Brinca (`grafo.py`, `nucleo.md`):
   the syntax of a connection, the base relation types, and the script that reads them, validates them and
   derives each document's `## Referido por` block. It is copied as it is, never edited here

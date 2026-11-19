@@ -12,6 +12,8 @@
 - `vecinos` also answers with the fields of an object (title, how many connections, lede, path, links to its
   file and its neighbours), takes `id` as well as `ruta`, and a document that does not exist answers 404 as a
   query.
+- `.telar/despliegue.yaml`: `telar desplegar` restarts each machine's `telar serve` when `modulo.toml` changes and
+  checks that `nodos` answers and that telar lists the `doc` objects.
 - A document under a symbolic link (a root of the graph that links to another folder) finds its connections in
   `vecinos`, `cerca` and `resumen`, asked by the link's path or by the real folder's (the one telar's viewer gives).
 - `buscar`, `cerca` and `resumen`, also as queries: find a way in by title or summary, walk two steps

@@ -1,0 +1,17 @@
+# How this module is deployed on every machine where it is installed (`telar desplegar`, from its folder; the format is
+# in telar's docs/perfil.md, «El despliegue»). The module has no service of its own: telar runs bin/grafo on every
+# query. What has to restart is each machine's `telar serve`, which reads modulo.toml when it starts: without that it
+# doesn't see a new query (`nodos`) or a new object type (`doc`). A change only to bin/ or nucleo/ needs no restart.
+
+servicios:
+  - systemd: telar-serve
+    launchd: com.telar.serve
+    si_cambia: [modulo.toml]
+
+comprobar:
+  # the query, through the API behind each machine's page: every document in the graph
+  - pagina: /api/modulos/grafo/nodos
+    plazo: 60
+  # the `doc` object type, as telar lists it (reads the graphs again if a commit invalidated their cache: seconds)
+  - comando: telar objeto doc --listar --json > /dev/null
+    plazo: 60
