@@ -40,6 +40,7 @@ telar grafo vecinos docs/una-idea.md    # what goes out of that document and wha
 telar grafo cerca docs/una-idea.md      # its neighbourhood two steps away (--saltos N), by any relation
 telar grafo resumen docs/una-idea.md    # what summarizes it and what details it (comprime / profundiza)
 telar grafo todo                        # the whole graph of the repository you are in, as JSON
+telar grafo nodos                       # every document in the graph, across all of telar's repositories
 telar grafo revisar                     # broken links and undeclared types; writes nothing
 ```
 
@@ -60,6 +61,30 @@ The answer is `{nodo, salientes, entrantes, repo}`. Each connection is `{origen,
 titulo_destino, locus, porque, estado}` (`estado`: `ok`, `roto` when the target does not exist,
 `externo` when it leaves the repository), with `origen_abs` and `destino_abs` to open it, and
 `titulo_origen` on the ones that come in.
+
+## Documents as telar objects
+
+Every document in the graph is also a telar object, `doc:<path>` (the path from telar's root, or the absolute
+one if it lies outside), declared in `[objetos.doc]`:
+
+```sh
+telar objeto doc:docs/una-idea.md       # its title, summary, connections, and links to its neighbours
+telar objeto doc --listar               # every document in the graph
+```
+
+- `vecinos` is its `ver`: besides `nodo`, `salientes` and `entrantes`, it answers with the fields of an object
+  (`titulo`, `estado` — how many connections —, `resumen` — the document's lede —, `campos`, and `enlaces`: its
+  `archivo:` address and the `doc:` address of each document it connects with).
+- `nodos` is its `listar`: every document of every repository in telar's `[repos]`, each one with `id`, `titulo`,
+  `estado`, `resumen` and `campos` (`ruta` in its repository, `ruta_abs`, `repo` and `conexiones`), the most
+  connected first. Only documents that take part in some connection are in the graph. A repository nested in
+  another one may show up in the outer one's graph as a link target: each document is listed once, with the
+  deepest repository that holds it. What could not be read goes to `fallas`.
+
+Because it lists, telar's search (`telar buscar`, and the search of the page's «todo» view) takes the documents
+as one more source: by title, by lede and by path, the most connected first; a click opens the document viewer,
+which shows its connections next to it. `ruta_abs` is what places each document in its world and what opens it.
+`plural` names the source («documentos»).
 
 ## Your repository's graph
 

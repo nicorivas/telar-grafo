@@ -26,6 +26,11 @@ descripcion = "El grafo entero de un repositorio: nodos, aristas y vocabulario."
 comando = ["bin/grafo", "todo"]
 consulta = true
 
+[ordenes.nodos]
+descripcion = "Todos los documentos del grafo, de todos los repositorios: título, resumen, ruta y cuántas conexiones."
+comando = ["bin/grafo", "nodos"]
+consulta = true
+
 [ordenes.revisar]
 descripcion = "Valida el grafo de un repositorio sin escribir nada (aristas rotas, tipos sin declarar)."
 comando = ["bin/grafo", "revisar"]
@@ -33,6 +38,12 @@ comando = ["bin/grafo", "revisar"]
 [ordenes.uso]
 descripcion = "¿Los agentes usan el grafo para encontrar, o buscan por texto? Lo mide en sus conversaciones."
 comando = ["bin/uso"]
+
+[objetos.doc]
+ver = "vecinos"
+listar = "nodos"
+plural = "documentos"
+descripcion = "un documento del grafo (doc:<ruta>): su título, su resumen y los documentos con que se conecta"
 
 [contexto]
 texto = """Los documentos de este repositorio están conectados en un grafo (cada uno dice con qué se relaciona y por qué, en `## Conexiones`). Para encontrar y entender, antes de buscar por texto: `telar grafo buscar <tema>` (la puerta de entrada), `telar grafo vecinos <ruta>` (lo que sale y lo que llega), `telar grafo cerca <ruta>` (a dos pasos), `telar grafo resumen <ruta>` (el resumen o el detalle)."""
